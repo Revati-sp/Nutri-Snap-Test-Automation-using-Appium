@@ -1,0 +1,25 @@
+# Copy to member*_local.yaml and fill in your machine-specific values.
+# Never commit real signing secrets or UDIDs if your policy forbids it.
+
+device:
+  name: "Your iPhone Name"
+  udid: "YOUR_DEVICE_UDID"
+  platform_version: "17.0"
+
+app:
+  # Bundle ID of the app under test (override per run or per teammate).
+  bundle_id: "com.example.yourapp"
+
+appium:
+  server_url: "http://127.0.0.1:4723"
+
+xcode:
+  # Required for WebDriverAgent on real devices (development team).
+  org_id: "YOUR_TEAM_ID"
+  signing_id: "Apple Development"
+
+session:
+  # Optional explicit WDA local port if you run multiple sessions.
+  wda_local_port: null
+  # Seconds for new command timeout (optional).
+  new_command_timeout: 120

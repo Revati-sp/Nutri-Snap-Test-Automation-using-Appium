@@ -1,0 +1,20 @@
+# Teammate 2 — copy from config_template.yaml and customize.
+
+device:
+  name: "Member2 iPhone"
+  udid: "REPLACE_WITH_MEMBER2_UDID"
+  platform_version: "17.0"
+
+app:
+  bundle_id: "com.snapcalorie.app"
+
+appium:
+  server_url: "http://127.0.0.1:4723"
+
+xcode:
+  org_id: "REPLACE_TEAM_ID"
+  signing_id: "Apple Development"
+
+session:
+  wda_local_port: null
+  new_command_timeout: 120
