@@ -1,25 +1,28 @@
-# Copy to member*_local.yaml and fill in your machine-specific values.
-# Never commit real signing secrets or UDIDs if your policy forbids it.
+# Local machine + device + Appium (copy to member*_local.yaml or my_local.yaml).
+# Do not commit real Team IDs / UDIDs if your course or employer forbids it.
 
 device:
+  # Shown in Appium Inspector / Xcode; can be a friendly label.
   name: "Your iPhone Name"
+  # Xcode → Window → Devices and Simulators → Identifier, or: xcrun devicectl list devices
   udid: "YOUR_DEVICE_UDID"
-  platform_version: "17.0"
+  # iPhone Settings → General → About → iOS Version (e.g. 18.2)
+  platform_version: "18.0"
 
 app:
-  # Bundle ID of the app under test (override per run or per teammate).
+  # Target app for this run (FoodZilla / SnapCalorie / Lose It! each have their own).
   bundle_id: "com.example.yourapp"
 
 appium:
+  # Must match where `appium` is listening (default below).
   server_url: "http://127.0.0.1:4723"
 
 xcode:
-  # Required for WebDriverAgent on real devices (development team).
+  # developer.apple.com → Account → Membership details → Team ID (10 chars)
   org_id: "YOUR_TEAM_ID"
+  # Common values: Apple Development | Apple Distribution
   signing_id: "Apple Development"
 
 session:
-  # Optional explicit WDA local port if you run multiple sessions.
   wda_local_port: null
-  # Seconds for new command timeout (optional).
   new_command_timeout: 120

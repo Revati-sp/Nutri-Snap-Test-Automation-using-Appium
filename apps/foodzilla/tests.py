@@ -21,8 +21,7 @@ def run_single_test(
     Execute one CSV/JSON row for FoodZilla.
     Returns (actual_output, error_message) where actual_output matches Deliverable 2B combined output.
     """
-    _ = config
-    page = FoodzillaPage(driver)
+    page = FoodzillaPage(driver, config)
     try:
         page.open_app()
         page.tap_scan_or_upload()

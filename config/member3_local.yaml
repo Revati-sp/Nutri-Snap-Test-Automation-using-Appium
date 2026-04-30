@@ -1,18 +1,18 @@
-# Teammate 3 — copy from config_template.yaml and customize.
+# Teammate 3 — Lose It! runs. Fill udid, platform_version, org_id, bundle_id before running.
 
 device:
   name: "Member3 iPhone"
   udid: "REPLACE_WITH_MEMBER3_UDID"
-  platform_version: "17.0"
+  platform_version: "REPLACE_IOS_VERSION"
 
 app:
-  bundle_id: "com.loseit.app"
+  bundle_id: "REPLACE_LOSEIT_BUNDLE_ID"
 
 appium:
   server_url: "http://127.0.0.1:4723"
 
 xcode:
-  org_id: "REPLACE_TEAM_ID"
+  org_id: "REPLACE_APPLE_TEAM_ID"
   signing_id: "Apple Development"
 
 session:

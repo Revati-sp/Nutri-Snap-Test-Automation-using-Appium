@@ -17,8 +17,7 @@ def run_single_test(
     testcase: dict[str, str],
     config: dict[str, Any],
 ) -> Tuple[str, Optional[str]]:
-    _ = config
-    page = SnapcaloriePage(driver)
+    page = SnapcaloriePage(driver, config)
     try:
         page.open_app()
         page.tap_scan_or_upload()
