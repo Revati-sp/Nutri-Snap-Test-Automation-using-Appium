@@ -1,0 +1,20 @@
+device:
+  name: "Sneha Kakarla"
+  udid: "00008150-001C71303A91401C"
+  platform_version: "26.4"
+
+app:
+  bundle_id: "com.snapcalorie.alpha002"
+
+appium:
+  server_url: "http://127.0.0.1:4723"
+
+xcode:
+  org_id: "RZ959VVV96"
+  signing_id: "Apple Development"
+
+session:
+  wda_local_port: null
+  new_command_timeout: 120
+  use_prebuilt_wda: true
+  derived_data_path: "/Users/snehakakarla/Library/Developer/Xcode/DerivedData/WebDriverAgent-ffsvyodoexrijyalunjpdqkztngw"
