@@ -15,3 +15,4 @@ build/
 # Local runs
 reports/results.csv
 reports/screenshots/
+reports/
