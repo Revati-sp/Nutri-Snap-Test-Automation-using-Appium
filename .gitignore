@@ -16,3 +16,6 @@ build/
 reports/results.csv
 reports/screenshots/
 reports/
+
+# Personal Appium / device secrets (UDID, Team ID, etc.)
+config/loseit_ramyarevati.yaml

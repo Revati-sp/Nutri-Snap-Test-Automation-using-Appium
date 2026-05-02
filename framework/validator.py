@@ -80,6 +80,29 @@ class NormalizedExactOutputRule(OutputMatchRule):
         return None
 
 
+class CommaTokenSetRule(OutputMatchRule):
+    """
+    PASS when expected and actual share the same set of comma-separated tokens (order-insensitive).
+
+    Handles the common case where the same food is described differently:
+      expected="Pomegranate, Juice"  vs  actual="Juice, Pomegranate"  -> PASS
+    Both sides must contain a comma to apply (single-token outputs defer to other rules).
+    """
+
+    def evaluate(self, ctx: OutputValidationContext) -> Optional[ValidationResult]:
+        exp_raw = normalize_output_text(ctx.expected_output)
+        act_raw = normalize_output_text(ctx.actual_output)
+        if "," not in exp_raw or "," not in act_raw:
+            return None
+        exp_set = {t.strip() for t in exp_raw.split(",") if t.strip()}
+        act_set = {t.strip() for t in act_raw.split(",") if t.strip()}
+        if not exp_set or not act_set:
+            return None
+        if exp_set == act_set:
+            return ValidationResult(True, "comma-token set match (order-insensitive)")
+        return None
+
+
 class NormalizedSubstringOutputRule(OutputMatchRule):
     """
     PASS when wording differs but one normalized string fully contains the other
@@ -130,6 +153,7 @@ def default_output_validator() -> CompositeOutputValidator:
         (
             PlaceholderExpectedRule(),
             NormalizedExactOutputRule(),
+            CommaTokenSetRule(),
             NormalizedSubstringOutputRule(min_len=4),
             FinalMismatchRule(),
         )

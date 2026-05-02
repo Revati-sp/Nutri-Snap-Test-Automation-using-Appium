@@ -1,0 +1,27 @@
+# Copy to config/loseit_ramyarevati.yaml (gitignored) and replace REPLACE_* values.
+# Run: python tests/run_all.py --config config/loseit_ramyarevati.yaml --app "Lose It!"
+
+device:
+  name: "REPLACE_DEVICE_LABEL"
+  udid: "REPLACE_IPHONE_UDID"
+  platform_version: "REPLACE_IOS_VERSION"
+
+app:
+  bundle_id: "REPLACE_LOSEIT_BUNDLE_ID"
+  # Free Personal Team needs a unique WDA id, e.g. "com.<yourname>.WebDriverAgent".
+  updated_wda_bundle_id: ""
+
+appium:
+  server_url: "http://127.0.0.1:4723"
+
+xcode:
+  org_id: "REPLACE_APPLE_TEAM_ID"
+  signing_id: "Apple Development"
+
+session:
+  wda_local_port: null
+  new_command_timeout: 120
+  show_xcode_log: true
+  allow_provisioning_device_registration: true
+  wda_launch_timeout: 240000
+  wda_startup_retries: 2

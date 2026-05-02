@@ -21,6 +21,7 @@ RESULT_COLUMNS = (
     "result",
     "error_message",
     "screenshot_path",
+    "duration_seconds",
     "timestamp",
 )
 

@@ -12,6 +12,9 @@ device:
 app:
   # Target app for this run (FoodZilla / SnapCalorie / Lose It! each have their own).
   bundle_id: "com.example.yourapp"
+  # Optional: rename WDA's bundle id to one your team can register (required for Apple free / Personal Team).
+  # Example: "com.<yourname>.WebDriverAgent". Appium appends ".xctrunner" for the runner target.
+  updated_wda_bundle_id: ""
 
 appium:
   # Must match where `appium` is listening (default below).
@@ -26,3 +29,10 @@ xcode:
 session:
   wda_local_port: null
   new_command_timeout: 120
+  # When true, Appium prints xcodebuild output (useful for WebDriverAgent / signing errors).
+  show_xcode_log: true
+  # When true, xcodebuild may auto-create provisioning for WebDriverAgent (real devices).
+  allow_provisioning_device_registration: true
+  # Bump these on slow Macs / Personal Team first install (default Appium = 60000 ms / 1 retry).
+  wda_launch_timeout: 240000
+  wda_startup_retries: 2

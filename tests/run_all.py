@@ -19,12 +19,18 @@ from apps.foodzilla.tests import run_single_test as run_foodzilla
 from apps.loseit.tests import run_single_test as run_loseit
 from apps.snapcalorie.tests import run_single_test as run_snapcalorie
 from framework.base_driver import create_ios_driver, save_screenshot
+from framework.complexity import format_report as format_complexity, measure_repository
 from framework.config_loader import load_config
-from framework.data_loader import filter_by_app, load_testcases
+from framework.data_loader import filter_by_app, filter_by_test_ids, load_testcases
 from framework.logger import get_logger, setup_logging
 from framework.report_generator import write_html_report
 from framework.result_logger import append_result_csv
-from framework.stats import format_summary, summarize_results
+from framework.stats import (
+    compute_batch_statistics,
+    format_execution,
+    format_summary,
+    summarize_results,
+)
 from framework.utils import normalize_app_key, project_root
 from framework.validator import validate_outputs
 
@@ -62,12 +68,24 @@ def run_batch(
     *,
     screenshots: bool = True,
     html_report: bool = True,
+    test_ids: list[str] | None = None,
 ) -> int:
     config = load_config(config_path)
     all_rows = load_testcases(data_path)
     rows = filter_by_app(all_rows, app_filter)
+    if test_ids:
+        before = len(rows)
+        rows = filter_by_test_ids(rows, test_ids)
+        logger.info(
+            "Test-id filter: kept %d/%d rows (ids=%s)", len(rows), before, ",".join(test_ids)
+        )
     if not rows:
-        logger.error("No test cases for app filter %r in %s", app_filter, data_path)
+        logger.error(
+            "No test cases for app filter %r%s in %s",
+            app_filter,
+            f" (test_ids={test_ids})" if test_ids else "",
+            data_path,
+        )
         return 2
 
     runner = _pick_runner(app_filter)
@@ -90,6 +108,9 @@ def run_batch(
             err_msg = ""
             outcome = "ERROR"
             actual_output = ""
+            # Wall-clock time for this single TC. Useful for the deliverable's
+            # "test automation cost" metric (avg/min/max/total runtime).
+            tc_started = datetime.now(timezone.utc)
 
             try:
                 actual_output, run_err = runner(driver, tc, config)
@@ -106,6 +127,9 @@ def run_batch(
             except Exception:
                 outcome = "ERROR"
                 err_msg = traceback.format_exc()
+
+            tc_finished = datetime.now(timezone.utc)
+            tc_duration_s = round((tc_finished - tc_started).total_seconds(), 3)
 
             screenshot_rel = ""
             if screenshots:
@@ -137,6 +161,7 @@ def run_batch(
                 "result": outcome,
                 "error_message": err_msg.replace("\n", " ").strip()[:2000],
                 "screenshot_path": screenshot_rel,
+                "duration_seconds": tc_duration_s,
                 "timestamp": ts_row,
             }
             append_result_csv(report_csv, row_out)
@@ -151,33 +176,32 @@ def run_batch(
 
     summary = summarize_results(result_rows)
     batch_finished = datetime.now(timezone.utc).isoformat()
+    statistics = compute_batch_statistics(result_rows)
+    complexity = measure_repository(project_root())
     logger.info(format_summary(summary))
+    logger.info(format_execution(statistics.execution))
+    logger.info(format_complexity(complexity))
     print(format_summary(summary))
+    print(format_execution(statistics.execution))
+    print(format_complexity(complexity))
 
     if html_report and result_rows:
         stem_ts = batch_started_dt.strftime("%Y%m%dT%H%M%SZ")
         html_path = report_dir / f"test_report_{stem_ts}.html"
         latest_path = report_dir / "test_report_latest.html"
-        write_html_report(
-            output_path=html_path,
-            rows=result_rows,
-            summary=summary,
-            app_filter=app_filter,
-            config_path=config_path,
-            data_path=data_path,
-            started_iso=batch_started,
-            finished_iso=batch_finished,
-        )
-        write_html_report(
-            output_path=latest_path,
-            rows=result_rows,
-            summary=summary,
-            app_filter=app_filter,
-            config_path=config_path,
-            data_path=data_path,
-            started_iso=batch_started,
-            finished_iso=batch_finished,
-        )
+        for out in (html_path, latest_path):
+            write_html_report(
+                output_path=out,
+                rows=result_rows,
+                summary=summary,
+                app_filter=app_filter,
+                config_path=config_path,
+                data_path=data_path,
+                started_iso=batch_started,
+                finished_iso=batch_finished,
+                statistics=statistics,
+                complexity=complexity,
+            )
         logger.info("HTML report written: %s (and test_report_latest.html)", html_path)
         print(f"HTML report: {html_path}")
 
@@ -210,7 +234,16 @@ def main() -> int:
         action="store_true",
         help="Skip HTML summary report after the batch",
     )
+    parser.add_argument(
+        "--test-ids",
+        default="",
+        help=(
+            "Comma-separated test_id values to run (e.g. 'TC01' or 'TC01,TC02,TC03'). "
+            "Useful for smoke runs or paywall-budgeted runs. Empty = run all."
+        ),
+    )
     args = parser.parse_args()
+    ids = [t.strip() for t in args.test_ids.split(",") if t.strip()]
     return run_batch(
         args.config,
         args.app,
@@ -218,6 +251,7 @@ def main() -> int:
         args.report,
         screenshots=not args.no_screenshots,
         html_report=not args.no_html_report,
+        test_ids=ids,
     )
 
 

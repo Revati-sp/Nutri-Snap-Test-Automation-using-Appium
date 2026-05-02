@@ -19,6 +19,10 @@ def run_single_test(
 ) -> Tuple[str, Optional[str]]:
     page = LoseItPage(driver, config)
     try:
+        # Force a clean state at the START of every row: kill the app if it's already running
+        # (e.g. stuck on the previous Triage / picker / paywall screen) and re-launch it so we
+        # always begin from the food-log home where SCAN_ENTRY ("Meal options menu...") lives.
+        page.reset_app()
         page.open_app()
         page.tap_scan_or_upload()
         image = testcase.get("image_path", "")

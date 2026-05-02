@@ -74,3 +74,19 @@ def _load_json(path: Path) -> list[dict[str, str]]:
 def filter_by_app(rows: list[dict[str, str]], app_key: str) -> list[dict[str, str]]:
     target = normalize_app_key(app_key)
     return [r for r in rows if normalize_app_key(r.get("app_name", "")) == target]
+
+
+def filter_by_test_ids(
+    rows: list[dict[str, str]], test_ids: list[str] | None
+) -> list[dict[str, str]]:
+    """Keep only rows whose `test_id` is in the requested set (case-insensitive).
+
+    Pass ``None`` or empty to keep all rows. Useful for smoke runs or paywall-budgeted
+    runs against apps with limited free uses (e.g. Lose It! Snap It).
+    """
+    if not test_ids:
+        return rows
+    wanted = {tid.strip().lower() for tid in test_ids if tid and tid.strip()}
+    if not wanted:
+        return rows
+    return [r for r in rows if str(r.get("test_id", "")).strip().lower() in wanted]
