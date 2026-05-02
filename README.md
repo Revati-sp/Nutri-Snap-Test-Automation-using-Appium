@@ -33,7 +33,7 @@ The framework is intended for **repeatable** batch runs, **structured logging**,
 
 | Area | Status |
 |------|--------|
-| **Driver, config, CSV/JSON load, validation chain, results CSV, stats, screenshots on failure** | Implemented under `framework/` and `tests/run_all.py`. |
+| **Driver, config, CSV/JSON load, validation chain, results CSV, HTML report, stats, screenshots per case** | Implemented under `framework/` and `tests/run_all.py`. |
 | **Shared scan → image → read flow** | Implemented in `framework/ios_food_scan_page.py`; app pages delegate to it. |
 | **App-specific UI** | **`apps/*/locators.py` still use TODO accessibility IDs.** Real flows require **Appium Inspector** (or Xcode) on **your** builds to replace `SCAN_ENTRY`, `RESULT_PANEL`, and optional `PHOTO_*` / `RESULT_*` locators. |
 | **`data/testcases.csv`** | Contains **93** rows aligned to the 2B model; **`expected_output`** is populated from the team’s Deliverable **2B** report. If you re-import or scaffold rows, replace any **`__REPLACE_WITH_DELIVERABLE_2B__`** placeholder before trusting PASS/FAIL (see §Test data). |
@@ -66,6 +66,7 @@ CMPE287 Automation Appium Python Framework/
 │   ├── data_loader.py
 │   ├── ios_food_scan_page.py      # Shared open → scan → image → read steps
 │   ├── logger.py
+│   ├── report_generator.py       # HTML batch summary next to CSV
 │   ├── result_logger.py
 │   ├── stats.py
 │   ├── utils.py
@@ -254,6 +255,8 @@ Optional flags:
 
 - `--data path/to/alternate.csv` — default is `data/testcases.csv`
 - `--report path/to/results.csv` — default is `reports/results.csv` (**append** mode)
+- `--no-screenshots` — skip PNG capture after each testcase
+- `--no-html-report` — skip generating `reports/test_report_*.html`
 
 ---
 
@@ -272,14 +275,17 @@ Exit code **0** means the batch finished with **no FAIL and no ERROR** rows; **1
 
 Using **separate `--report` files** avoids mixing three apps in one append-only CSV unless you intend to.
 
+If your **`results.csv`** was created **before** the **`screenshot_path`** column existed, start a **new** `--report` path (or delete the old CSV) so the header matches the current columns.
+
 ---
 
 ## Results and reporting
 
 - **`reports/results.csv`** (or your `--report` path): **append-only** CSV with columns  
-  `test_id`, `app_name`, `section`, `subsection`, `dimension_type`, `sub_dimension`, `item_description`, `image_path`, `expected_output`, `actual_output`, `result`, `error_message`, `timestamp`.
+  `test_id`, `app_name`, `section`, `subsection`, `dimension_type`, `sub_dimension`, `item_description`, `image_path`, `expected_output`, `actual_output`, `result`, `error_message`, `screenshot_path`, `timestamp`.
 - **`result`:** `PASS`, `FAIL`, or `ERROR` (exceptions or runner-reported errors).
-- **Screenshots:** On **`FAIL`** or **`ERROR`**, a PNG is written under **`reports/screenshots/`**.
+- **Screenshots:** After **each** testcase (including **`PASS`**), a PNG is saved under **`reports/screenshots/`** (named with outcome). Disable with **`--no-screenshots`** if needed.
+- **HTML report:** After each batch, **`reports/test_report_<UTC>.html`** and **`reports/test_report_latest.html`** summarize the same rows with thumbnail links. Skip with **`--no-html-report`**.
 - **Console / logs:** A one-line **summary** (totals, pass, fail, errors, pass percentage) is printed at the end of each batch.
 
 ---
@@ -314,7 +320,7 @@ Using **separate `--report` files** avoids mixing three apps in one append-only 
 | **Executable automation** | `tests/run_all.py` + `apps/*/tests.py` execute CSV rows against a live Appium session. |
 | **Repeatability** | External data file, deterministic runner, append-only results, exit code from summary. |
 | **3D AI model coverage** | Rows encode **context** and **input** dimensions; **output** is checked via **`expected_output`** vs **`actual_output`** after UI reads are implemented. |
-| **Engineering quality** | Page Object–style layout, shared framework vs app modules, explicit waits, failure screenshots, modular validation. |
+| **Engineering quality** | Page Object–style layout, shared framework vs app modules, explicit waits, per-case screenshots + CSV/HTML reporting, modular validation. |
 
 ---
 

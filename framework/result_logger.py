@@ -20,6 +20,7 @@ RESULT_COLUMNS = (
     "actual_output",
     "result",
     "error_message",
+    "screenshot_path",
     "timestamp",
 )
 
