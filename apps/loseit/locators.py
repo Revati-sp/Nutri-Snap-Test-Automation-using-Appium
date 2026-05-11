@@ -43,17 +43,22 @@ PHOTO_PICKER_CELL: Optional[Tuple[str, str]] = None  # static fallback; template
 # Step 3.5 — Lose It! shows a "Choose Photo" preview after the picker; tap "Choose" to confirm.
 # Native Lose It! button (`name="Done"` with `label="Choose"`).
 PHOTO_CONFIRM_BUTTON: Optional[Tuple[str, str]] = (AppiumBy.ACCESSIBILITY_ID, "Done")
+PHOTO_CONFIRM_FALLBACKS: Tuple[Tuple[str, str], ...] = (
+    (AppiumBy.IOS_PREDICATE, 'type == "XCUIElementTypeButton" AND label == "Choose"'),
+)
 
 # Step 4 — Lose It!'s "Smart Logging Triage" result screen.
 # It shows multiple candidates; the top one is the first StaticText with format "<Category>, <Name>"
 # (e.g. "Juice, Pomegranate"). The serving info ("X cals per Y") and section header ("Breakfast: N cals")
-# are excluded.
+# are excluded. Some items (e.g. packaged madeleines) use a single-line title with no comma.
 RESULT_PANEL = (
     AppiumBy.IOS_PREDICATE,
-    'type == "XCUIElementTypeStaticText" AND name CONTAINS ", " '
+    'type == "XCUIElementTypeStaticText" '
     'AND NOT (name BEGINSWITH "Breakfast" OR name BEGINSWITH "Lunch" '
     'OR name BEGINSWITH "Dinner" OR name BEGINSWITH "Snacks" '
-    'OR name CONTAINS "cals" OR name CONTAINS "Premium" OR name CONTAINS "complimentary")',
+    'OR name CONTAINS "cals" OR name CONTAINS "Premium" OR name CONTAINS "complimentary" '
+    'OR name CONTAINS "SNAP IT" OR name == "Edit" OR name == "Delete") '
+    'AND (name CONTAINS ", " OR name CONTAINS[c] "madelein")',
 )
 RESULT_DETECTION: Optional[Tuple[str, str]] = None
 RESULT_CLASSIFICATION: Optional[Tuple[str, str]] = None

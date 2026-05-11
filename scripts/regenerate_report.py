@@ -28,6 +28,28 @@ from framework.report_generator import write_html_report
 from framework.stats import compute_batch_statistics, summarize_results
 
 
+def _parse_ts(val: str):
+    if not (val or "").strip():
+        return None
+    try:
+        return datetime.fromisoformat(val.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _batch_window_from_rows(rows: list[dict[str, str]]) -> tuple[str | None, str | None]:
+    """Earliest and latest per-row `timestamp` from CSV, if parseable."""
+    times = []
+    for r in rows:
+        dt = _parse_ts(r.get("timestamp", ""))
+        if dt is not None:
+            times.append(dt)
+    if not times:
+        return None, None
+    times.sort()
+    return times[0].isoformat(), times[-1].isoformat()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -76,6 +98,10 @@ def main() -> int:
     timestamped = out_dir / f"test_report_{stem_ts}.html"
     latest = out_dir / "test_report_latest.html"
 
+    batch_start, batch_end = _batch_window_from_rows(rows)
+    started_iso = batch_start or "(no timestamp column / empty values in CSV)"
+    finished_iso = batch_end or now_iso
+
     for out in (timestamped, latest):
         write_html_report(
             output_path=out,
@@ -84,8 +110,8 @@ def main() -> int:
             app_filter=args.app,
             config_path=Path("(regenerated from CSV)"),
             data_path=args.csv,
-            started_iso="(see per-row timestamps)",
-            finished_iso=now_iso,
+            started_iso=started_iso,
+            finished_iso=finished_iso,
             statistics=statistics,
             complexity=complexity,
         )

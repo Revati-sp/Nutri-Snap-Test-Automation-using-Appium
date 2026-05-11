@@ -46,7 +46,7 @@ test_id,app_name,section,subsection,dimension_type,sub_dimension,item_descriptio
 15,Lose It!,Input,Packaging,Packaging,Packaging,Wrapped Food,data/images/TC15.jpg,Apple,,
 16,FoodZilla,Input,Packaging,Packaging,Packaging,Wrapped Food,data/images/TC16.jpg,Madeleins,,
 16,SnapCalorie,Input,Packaging,Packaging,Packaging,Wrapped Food,data/images/TC16.jpg,Madeleins,,
-16,Lose It!,Input,Packaging,Packaging,Packaging,Wrapped Food,data/images/TC16.jpg,Madeleins,,
+16,Lose It!,Input,Packaging,Packaging,Packaging,Wrapped Food,data/images/TC16.jpg,Madeleines,,
 17,FoodZilla,Input,Category,Category,Category,Uncooked Food,data/images/TC17.jpg,Raw chicken Breast,,
 17,SnapCalorie,Input,Category,Category,Category,Uncooked Food,data/images/TC17.jpg,Raw chicken Breast,,
 17,Lose It!,Input,Category,Category,Category,Uncooked Food,data/images/TC17.jpg,Raw chicken Breast,,

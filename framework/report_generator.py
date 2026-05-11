@@ -12,6 +12,7 @@ Sections (deliverable-aligned):
 from __future__ import annotations
 
 import html
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -26,6 +27,26 @@ from framework.stats import (
 
 def _esc(val: object) -> str:
     return html.escape(str(val), quote=True)
+
+
+def _format_display_timestamp(val: object) -> str:
+    """Render CSV/runner ISO-8601 timestamps as readable UTC (e.g. for HTML tables)."""
+    if val is None:
+        return "—"
+    s = str(val).strip()
+    if not s or s.startswith("(see ") or s.startswith("(regenerated"):
+        return _esc(s) if s else "—"
+    try:
+        normalized = s.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt_utc = dt.astimezone(timezone.utc)
+        formatted = dt_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+        iso_attr = dt_utc.isoformat().replace("+00:00", "Z")
+        return f'<time datetime="{_esc(iso_attr)}">{_esc(formatted)}</time>'
+    except ValueError:
+        return _esc(s)
 
 
 def _summary_kv_table(summary: RunSummary) -> str:
@@ -133,8 +154,11 @@ def _detail_table(rows: list[Mapping[str, Any]]) -> str:
         if shot:
             shot_esc = _esc(shot)
             shot_cell = f'<a href="{shot_esc}">{shot_esc}</a><br/><img src="{shot_esc}" alt=""/>'
+        else:
+            shot_cell = '<span class="meta">— (no file path in results; re-run test to capture)</span>'
         dur = r.get("duration_seconds", "")
         dur_cell = f"{float(dur):.2f}" if str(dur).strip() else ""
+        ts_cell = _format_display_timestamp(r.get("timestamp"))
         body_parts.append(
             "<tr>"
             f"<td>{_esc(r.get('test_id', ''))}</td>"
@@ -145,9 +169,9 @@ def _detail_table(rows: list[Mapping[str, Any]]) -> str:
             f"<td>{_esc(r.get('expected_output', ''))}</td>"
             f"<td>{_esc(r.get('actual_output', ''))}</td>"
             f"<td>{_esc(dur_cell)}</td>"
+            f'<td class="ts">{ts_cell}</td>'
             f"<td>{_esc(r.get('error_message', ''))}</td>"
             f"<td>{shot_cell}</td>"
-            f"<td>{_esc(r.get('timestamp', ''))}</td>"
             "</tr>"
         )
     return (
@@ -155,7 +179,8 @@ def _detail_table(rows: list[Mapping[str, Any]]) -> str:
         "<thead><tr>"
         "<th>test_id</th><th>app</th><th>section</th><th>dimension</th><th>result</th>"
         "<th>expected_output</th><th>actual_output</th><th>duration (s)</th>"
-        "<th>error_message</th><th>screenshot</th><th>timestamp</th>"
+        '<th class="ts">timestamp (UTC)</th>'
+        "<th>error_message</th><th>screenshot</th>"
         "</tr></thead><tbody>"
         f"{''.join(body_parts)}"
         "</tbody></table>"
@@ -199,6 +224,8 @@ def write_html_report(
         "details{margin-top:12px;}"
         "details summary{cursor:pointer;font-size:13px;color:#555;}"
         "section{margin-top:14px;}"
+        "th.ts,td.ts{white-space:nowrap;font-variant-numeric:tabular-nums;}"
+        ".meta time{font-weight:500;}"
     )
 
     parts: list[str] = [
@@ -215,8 +242,8 @@ def write_html_report(
         f"App filter: <strong>{_esc(app_filter)}</strong><br/>"
         f"Config: {_esc(config_path)}<br/>"
         f"Data: {_esc(data_path)}<br/>"
-        f"Started: {_esc(started_iso)}<br/>"
-        f"Finished: {_esc(finished_iso)}"
+        f"Run started: {_format_display_timestamp(started_iso)}<br/>"
+        f"Run finished: {_format_display_timestamp(finished_iso)}"
         "</p>",
         "<h2>1. Top-line statistics</h2>",
         _summary_kv_table(summary),

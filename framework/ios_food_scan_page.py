@@ -118,7 +118,8 @@ def _index_to_picker_time_label(idx_1_based: int) -> str:
         h_disp, suffix = 12, "PM"
     else:
         h_disp, suffix = base_hour_24 - 12, "PM"
-    return f"Photo, 01 January, {h_disp}:{minute:02d} {suffix}"
+    # iOS Photos uses a narrow no-break space (U+202F) before AM/PM in accessibility labels.
+    return f"Photo, 01 January, {h_disp}:{minute:02d}\u202f{suffix}"
 
 
 class IosFoodScanPageBase:
@@ -367,10 +368,82 @@ class IosFoodScanPageBase:
         row = zero_based // 3
         cell_w = 130
         cell_h = 130
-        origin_y = 127
+        grid_top = 11  # PHPicker album grid (see reports/debug/* NutriSnapTests layout)
         x_center = col * cell_w + cell_w // 2
-        y_center = origin_y + row * cell_h + cell_h // 2
+        y_center = grid_top + row * cell_h + cell_h // 2
         return (x_center, y_center)
+
+    def _swipe_picker_grid_up(self, width: int, height: int) -> None:
+        """Scroll the PHPicker thumbnail grid upward (finger swipe up) so lower rows come into view."""
+        try:
+            from selenium.webdriver.common.actions import interaction
+            from selenium.webdriver.common.actions.action_builder import ActionBuilder
+            from selenium.webdriver.common.actions.pointer_input import PointerInput
+
+            finger = PointerInput(interaction.POINTER_TOUCH, "finger")
+            actions = ActionBuilder(self.driver, mouse=finger)
+            x = int(width / 2)
+            y1 = int(height * 0.72)
+            y2 = int(height * 0.38)
+            actions.pointer_action.move_to_location(x, y1)
+            actions.pointer_action.pointer_down()
+            actions.pointer_action.pause(0.05)
+            actions.pointer_action.move_to_location(x, y2)
+            actions.pointer_action.pause(0.08)
+            actions.pointer_action.pointer_up()
+            actions.perform()
+        except Exception:
+            logger.warning("%s: picker grid swipe-up failed", self._log, exc_info=True)
+
+    def _picker_tap_coordinate_for_tc(self, idx_1_based: int) -> Optional[tuple[int, int]]:
+        """Screen (x, y) for the TC thumbnail after scrolling the PHPicker grid so the cell is visible.
+
+        Virtual row index ``row`` is (idx-1)//3. We track how many rows have scrolled off the top
+        (``scroll_row_offset``); after each swipe we assume ~3 rows advance (see ``ROWS_ADV_PER_SWIPE``).
+        """
+        if idx_1_based < 1:
+            return None
+        cell_w, cell_h = 130, 130
+        grid_top = 11
+        bottom_safe = 48
+        rows_adv_per_swipe = 3
+
+        try:
+            sz = self.driver.get_window_size()
+            w = int(sz["width"])
+            h = int(sz["height"])
+        except Exception:
+            w, h = 390, 844
+
+        col = (idx_1_based - 1) % 3
+        row = (idx_1_based - 1) // 3
+        # Cap how many grid rows fit without scrolling (keeps TC16+ needing swipe; matches 390×844).
+        r_max = min(4, max(0, (h - bottom_safe - grid_top - cell_h // 2) // cell_h))
+
+        scroll_row_offset = 0
+        guard = 0
+        while row - scroll_row_offset > r_max and guard < 40:
+            self._swipe_picker_grid_up(w, h)
+            time.sleep(0.45)
+            scroll_row_offset += rows_adv_per_swipe
+            guard += 1
+
+        remaining_row = row - scroll_row_offset
+        if remaining_row < 0:
+            remaining_row = 0
+        x = col * cell_w + cell_w // 2
+        y = grid_top + remaining_row * cell_h + cell_h // 2
+        if guard:
+            logger.info(
+                "%s: PHPicker scrolled for TC%02d (row=%d): %d swipe(s), tap (%d, %d)",
+                self._log,
+                idx_1_based,
+                row,
+                guard,
+                x,
+                y,
+            )
+        return (x, y)
 
     def _tap_at(self, x: int, y: int) -> bool:
         """Send a single tap at absolute screen coordinates via the W3C Actions API.
@@ -396,6 +469,24 @@ class IosFoodScanPageBase:
         except Exception as exc:  # noqa: BLE001
             logger.warning("%s: coordinate tap (%d, %d) failed: %r", self._log, x, y, exc)
             return False
+
+    def _confirm_photo_selection(self) -> bool:
+        """Tap Choose / Done after a thumbnail is selected; retry with optional predicate fallbacks."""
+        primary = getattr(self._loc, "PHOTO_CONFIRM_BUTTON", None)
+        fallbacks: tuple[tuple[str, str], ...] = getattr(self._loc, "PHOTO_CONFIRM_FALLBACKS", ()) or ()
+        candidates: list[tuple[str, str]] = []
+        if primary:
+            candidates.append(primary)
+        candidates.extend(fallbacks)
+        if not candidates:
+            return False
+        time.sleep(1.0)
+        for _ in range(5):
+            for loc in candidates:
+                if _click_resilient(self.driver, loc, timeout=4.0):
+                    return True
+            time.sleep(1.1)
+        return False
 
     def select_image(self, image_path: str) -> None:
         """
@@ -453,7 +544,9 @@ class IosFoodScanPageBase:
 
         album = getattr(self._loc, "PHOTO_ALBUM_ROW", None)
         if album:
-            alb_ok = _click_resilient(self.driver, album, timeout=12.0)
+            # Album list can take >20s on slow devices / cold Photos DB; do not fall through to
+            # coordinate taps on the wrong screen (e.g. "Shared Albums" row under NutriSnapTests).
+            alb_ok = _click_resilient(self.driver, album, timeout=28.0)
             if not alb_ok:
                 alb_ok = _click_resilient(self.driver, album, timeout=10.0, use_present=True)
             if alb_ok:
@@ -462,6 +555,12 @@ class IosFoodScanPageBase:
             else:
                 logger.warning("%s: album row (%r) not clicked", self._log, album)
                 self._dump_debug_state(tag="album_row_not_clicked")
+                logger.error(
+                    "%s: aborting photo selection — NutriSnapTests album did not open; "
+                    "coordinate fallback would hit the wrong UI.",
+                    self._log,
+                )
+                return
 
         cell = self._resolve_cell_locator(rel)
         cell_clicked = False
@@ -480,8 +579,8 @@ class IosFoodScanPageBase:
                 )
 
         # Coordinate-tap fallback: iOS 26 PHPicker hides cells from Appium's element finder,
-        # so we tap the calculated center of the Nth cell. Works for TC01-TC18 (the first
-        # ~18 cells visible without scrolling).
+        # so we tap the calculated center of the Nth cell. High TC indices scroll the grid first
+        # (`_picker_tap_coordinate_for_tc`).
         if not cell_clicked:
             m = _TC_INDEX_RE.search(rel)
             if not m:
@@ -501,7 +600,7 @@ class IosFoodScanPageBase:
                     except (TypeError, ValueError):
                         x, y = None, None
             if x is None or y is None:
-                coord = self._picker_cell_coordinate(idx)
+                coord = self._picker_tap_coordinate_for_tc(idx)
                 if not coord:
                     logger.warning("%s: could not compute coordinate for TC index %d", self._log, idx)
                     self._dump_debug_state(tag="cell_no_coord")
@@ -512,10 +611,17 @@ class IosFoodScanPageBase:
                 return
             logger.info("%s: tapped picker cell TC%02d at (%d, %d)", self._log, idx, x, y)
 
-        confirm = getattr(self._loc, "PHOTO_CONFIRM_BUTTON", None)
-        if confirm:
-            if _click_resilient(self.driver, confirm, timeout=12.0):
+        if getattr(self._loc, "PHOTO_CONFIRM_BUTTON", None) or getattr(
+            self._loc, "PHOTO_CONFIRM_FALLBACKS", None
+        ):
+            if self._confirm_photo_selection():
                 logger.info("%s: confirmed photo selection", self._log)
+            else:
+                logger.warning(
+                    "%s: photo confirm (Choose/Done) not tapped after retries — wrong photo or "
+                    "preview did not appear",
+                    self._log,
+                )
 
         if not lib_btn and not cell:
             logger.warning(
