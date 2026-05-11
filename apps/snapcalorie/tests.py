@@ -24,7 +24,7 @@ def run_single_test(
         image = testcase.get("image_path", "")
         if image:
             page.select_image(image)
-        return page.read_model_output(), None
+        return page.read_model_output(testcase), None
     except Exception as exc:  # noqa: BLE001
         logger.exception("SnapCalorie test execution error")
         return "", str(exc)

@@ -25,14 +25,27 @@ xcode:
   org_id: "YOUR_TEAM_ID"
   # Common values: Apple Development | Apple Distribution
   signing_id: "Apple Development"
+  # Real device: lets xcodebuild refresh provisioning for WebDriverAgent (recommended).
+  allow_provisioning_device_registration: true
+  # Extra Xcode output in Appium logs when debugging WDA install failures.
+  show_xcode_log: false
 
 session:
   wda_local_port: null
   new_command_timeout: 120
   # When true, Appium prints xcodebuild output (useful for WebDriverAgent / signing errors).
+  # Ignored if xcode.show_xcode_log is set in your YAML (xcode wins).
   show_xcode_log: true
   # When true, xcodebuild may auto-create provisioning for WebDriverAgent (real devices).
   allow_provisioning_device_registration: true
   # Bump these on slow Macs / Personal Team first install (default Appium = 60000 ms / 1 retry).
   wda_launch_timeout: 240000
   wda_startup_retries: 2
+  # When true (or env NUTRISNAP_DUMP_RESULT_XML=1), writes reports/debug/result_read_empty_*.xml|.png
+  # if read_model_output finds no text — use like an Inspector snapshot without manual capture.
+  dump_result_xml_on_miss: false
+  # Optional: if Xcode builds WDA but Appium xcodebuild fails, set use_prebuilt_wda + derived_data_path
+  # (folder from: ls ~/Library/Developer/Xcode/DerivedData/WebDriverAgent-* ) + updated_wda_bundle_id matching Xcode.
+  # use_prebuilt_wda: false
+  # derived_data_path: ""
+  # updated_wda_bundle_id: ""

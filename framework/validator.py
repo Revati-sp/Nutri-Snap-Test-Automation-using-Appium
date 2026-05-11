@@ -80,6 +80,30 @@ class NormalizedExactOutputRule(OutputMatchRule):
         return None
 
 
+class CommaSeparatedPartsPresentRule(OutputMatchRule):
+    """
+    PASS when ``expected_output`` lists several comma-separated phrases and each phrase
+    appears somewhere in ``actual_output`` (after normalization).
+
+    Bridges UI that omits commas, e.g. expected \"Pomegranate, Juice\" vs actual
+    \"pomegranate juice\".
+    """
+
+    def evaluate(self, ctx: OutputValidationContext) -> Optional[ValidationResult]:
+        exp_raw = str(ctx.expected_output or "")
+        if "," not in exp_raw:
+            return None
+        parts = [normalize_output_text(p) for p in exp_raw.split(",") if normalize_output_text(p)]
+        if len(parts) < 2:
+            return None
+        act = normalize_output_text(ctx.actual_output)
+        if len(act) < 3:
+            return None
+        if all(p in act for p in parts):
+            return ValidationResult(True, "all comma-separated expected phrases appear in actual")
+        return None
+
+
 class CommaTokenSetRule(OutputMatchRule):
     """
     PASS when expected and actual share the same set of comma-separated tokens (order-insensitive).
@@ -154,6 +178,7 @@ def default_output_validator() -> CompositeOutputValidator:
             PlaceholderExpectedRule(),
             NormalizedExactOutputRule(),
             CommaTokenSetRule(),
+            CommaSeparatedPartsPresentRule(),
             NormalizedSubstringOutputRule(min_len=4),
             FinalMismatchRule(),
         )

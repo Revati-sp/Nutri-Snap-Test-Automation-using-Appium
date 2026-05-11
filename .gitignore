@@ -19,3 +19,7 @@ reports/
 
 # Personal Appium / device secrets (UDID, Team ID, etc.)
 config/loseit_ramyarevati.yaml
+
+# Academic report sources — keep local only; do not commit or push
+docs/cmpe287_ieee_hernest_format.tex
+docs/cmpe287_ieee_report.tex

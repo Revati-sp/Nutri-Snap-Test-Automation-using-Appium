@@ -92,3 +92,6 @@ test_id,app_name,section,subsection,dimension_type,sub_dimension,item_descriptio
 31,FoodZilla,Input,Item Test,Item Test,Item Test,Item that looks like food,data/images/TC31.jpg,"Sorry, we could not detect the food in the picture",,
 31,SnapCalorie,Input,Item Test,Item Test,Item Test,Item that looks like food,data/images/TC31.jpg,"Sorry, we could not detect the food in the picture",,
 31,Lose It!,Input,Item Test,Item Test,Item Test,Item that looks like food,data/images/TC31.jpg,"Sorry, we could not detect the food in the picture",,
+32,FoodZilla,Context,Illumination,Illumination,Illumination,Popcorn plush (Recents slot 2),data/images/TC32.jpg,Popcorn,,
+32,SnapCalorie,Context,Illumination,Illumination,Illumination,Popcorn plush (Recents slot 2),data/images/TC32.jpg,Popcorn,,
+32,Lose It!,Context,Illumination,Illumination,Illumination,Popcorn plush (Recents slot 2),data/images/TC32.jpg,Popcorn,,

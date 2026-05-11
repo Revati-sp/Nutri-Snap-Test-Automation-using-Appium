@@ -1,0 +1,15 @@
+{
+  "platformName": "iOS",
+  "appium:automationName": "XCUITest",
+  "appium:deviceName": "Kavya's iPhone",
+  "appium:platformVersion": "17.6",
+  "appium:udid": "00008140-001C18302EFA801C",
+  "appium:bundleId": "xyz.mbgames.foodz",
+  "appium:xcodeOrgId": "6Z343TLV4K",
+  "appium:xcodeSigningId": "Apple Development",
+  "appium:allowProvisioningDeviceRegistration": true,
+  "appium:showXcodeLog": true,
+  "appium:usePrebuiltWDA": true,
+  "appium:derivedDataPath": "/Users/kavyayerneni/Library/Developer/Xcode/DerivedData/WebDriverAgent-curgliuxlsntiqapyhlkziugjrye",
+  "appium:updatedWDABundleId": "edu.sjsu.kavya.WebDriverAgentRunner"
+}

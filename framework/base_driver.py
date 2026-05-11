@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from appium import webdriver
 from appium.options.ios import XCUITestOptions
@@ -42,17 +42,31 @@ def build_xcuitest_options(config: dict[str, Any]) -> XCUITestOptions:
     sid = get_nested(config, "xcode", "signing_id", default="")
     if sid:
         opts.xcode_signing_id = str(sid)
+    if get_nested(config, "session", "use_prebuilt_wda", default=False):
+        opts.use_prebuilt_wda = True
+    ddp = get_nested(config, "session", "derived_data_path", default="")
+    if ddp:
+        opts.derived_data_path = str(ddp).strip()
+    uwbi = get_nested(config, "session", "updated_wda_bundle_id", default="")
+    if uwbi:
+        opts.updated_wda_bundle_id = str(uwbi).strip()
     wda_port = get_nested(config, "session", "wda_local_port", default=None)
     if wda_port is not None and str(wda_port).strip():
         opts.wda_local_port = int(wda_port)
     nct = get_nested(config, "session", "new_command_timeout", default=120)
     if nct is not None:
         opts.new_command_timeout = int(nct)
-    # Log full xcodebuild output on Appium server (helps WDA failures: signing, license, SDK).
-    sx = get_nested(config, "session", "show_xcode_log", default=True)
+    # xcode.* overrides session.* when the key exists (including explicit false).
+    xcode_block = config.get("xcode") if isinstance(config, Mapping) else None
+    if isinstance(xcode_block, Mapping) and "show_xcode_log" in xcode_block:
+        sx = xcode_block["show_xcode_log"]
+    else:
+        sx = get_nested(config, "session", "show_xcode_log", default=True)
     opts.show_xcode_log = bool(sx)
-    # Passes -allowProvisioningUpdates to xcodebuild so WDA can auto-sign (required for many setups).
-    apr = get_nested(config, "session", "allow_provisioning_device_registration", default=True)
+    if isinstance(xcode_block, Mapping) and "allow_provisioning_device_registration" in xcode_block:
+        apr = xcode_block["allow_provisioning_device_registration"]
+    else:
+        apr = get_nested(config, "session", "allow_provisioning_device_registration", default=True)
     opts.allow_provisioning_device_registration = bool(apr)
     # Increase WDA launch timeout for first install on free Personal Team / large device builds.
     wlt = get_nested(config, "session", "wda_launch_timeout", default=None)

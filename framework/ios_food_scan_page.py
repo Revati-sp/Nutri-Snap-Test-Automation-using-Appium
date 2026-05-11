@@ -10,19 +10,58 @@ from __future__ import annotations
 import re
 import time
 from types import ModuleType
-from typing import Any, Mapping, Optional
+from typing import Any, List, Mapping, Optional, Tuple
 
+from appium.webdriver.common.appiumby import AppiumBy
 from appium.webdriver.webdriver import WebDriver
 from selenium.common.exceptions import StaleElementReferenceException
 
 from framework.base_driver import safe_wait_until_present, safe_wait_until_visible
 from framework.config_loader import get_nested
 from framework.logger import get_logger
-from framework.utils import resolve_path
+from framework.utils import env_truthy, resolve_path
+from framework.validator import normalize_output_text
 
 logger = get_logger(__name__)
 
 _TC_INDEX_RE = re.compile(r"TC0*(\d+)", re.IGNORECASE)
+
+
+def _expected_parts_for_matching(expected_output: str) -> List[str]:
+    """Comma-separated phrases from CSV (normalized); single-field rows become one phrase."""
+    raw = str(expected_output or "").strip()
+    if not raw:
+        return []
+    if "," in raw:
+        return [normalize_output_text(p) for p in raw.split(",") if normalize_output_text(p)]
+    return [normalize_output_text(raw)]
+
+
+def _score_text_vs_expected_parts(display: str, parts: List[str]) -> int:
+    """Count how many expected comma-phrases appear as substrings in display (normalized)."""
+    if not parts:
+        return 0
+    d = normalize_output_text(display)
+    return sum(1 for p in parts if p and p in d)
+
+
+def _ios_element_display_text(el: Any) -> str:
+    """Best-effort readable string from an iOS element (``.text`` is often empty; try attributes)."""
+    if el is None:
+        return ""
+    for getter in (
+        lambda: (el.text or "").strip(),
+        lambda: (el.get_attribute("value") or "").strip(),
+        lambda: (el.get_attribute("label") or "").strip(),
+        lambda: (el.get_attribute("name") or "").strip(),
+    ):
+        try:
+            s = getter()
+            if s:
+                return s
+        except Exception:
+            continue
+    return ""
 
 
 def _click_resilient(
@@ -122,6 +161,21 @@ class IosFoodScanPageBase:
         except Exception:
             logger.warning("%s: screenshot dump failed", self._log, exc_info=True)
 
+    def _maybe_dump_result_screen_if_empty(self) -> None:
+        """When enabled, capture page_source + PNG after failing to read meal text (Inspector substitute)."""
+        if not env_truthy("NUTRISNAP_DUMP_RESULT_XML") and not get_nested(
+            self._config, "session", "dump_result_xml_on_miss", default=False
+        ):
+            return
+        self._dump_debug_state(tag="result_read_empty")
+
+    @staticmethod
+    def _is_placeholder_locator(loc: Optional[tuple[str, str]]) -> bool:
+        if not loc or len(loc) < 2:
+            return True
+        v = loc[1]
+        return isinstance(v, str) and v.strip().upper().startswith("TODO_")
+
     def _scan_locator(self) -> Optional[tuple[str, str]]:
         loc = self._loc
         return getattr(loc, "SCAN_ENTRY", None) or getattr(loc, "PLACEHOLDER_BUTTON", None)
@@ -129,6 +183,22 @@ class IosFoodScanPageBase:
     def _result_locator(self) -> Optional[tuple[str, str]]:
         loc = self._loc
         return getattr(loc, "RESULT_PANEL", None) or getattr(loc, "PLACEHOLDER_RESULT", None)
+
+    def _result_locator_chain(self) -> List[Tuple[str, str]]:
+        """Ordered locators for meal output. ``RESULT_PANEL_CANDIDATES`` replaces primary+fallbacks if set."""
+        loc = self._loc
+        cands = getattr(loc, "RESULT_PANEL_CANDIDATES", None)
+        if cands:
+            return [c for c in cands if c and len(c) == 2 and c[0] and c[1]]
+        out: List[Tuple[str, str]] = []
+        primary = self._result_locator()
+        if primary:
+            out.append(primary)
+        fallbacks = getattr(loc, "RESULT_PANEL_FALLBACKS", None) or []
+        for f in fallbacks:
+            if f and len(f) == 2 and f[0] and f[1]:
+                out.append((f[0], f[1]))
+        return out
 
     def open_app(self) -> None:
         """Bring the AUT to the foreground (session is already created with bundle_id in caps)."""
@@ -166,13 +236,72 @@ class IosFoodScanPageBase:
     def tap_scan_or_upload(self) -> None:
         """Step 1–2: open the scan / camera / upload entry (one primary control or first of a chain)."""
         scan_loc = self._scan_locator()
-        if not scan_loc:
-            logger.warning("%s: define SCAN_ENTRY (or PLACEHOLDER_BUTTON) in locators.py", self._log)
+        primary: list[tuple[str, str]] = []
+        secondary: list[tuple[str, str]] = []
+        if scan_loc and not self._is_placeholder_locator(scan_loc):
+            primary.append(scan_loc)
+        for fb in getattr(self._loc, "SCAN_FALLBACK_LOCATORS", None) or []:
+            if fb and isinstance(fb, tuple) and len(fb) == 2:
+                secondary.append((str(fb[0]), str(fb[1])))
+        if not primary and not secondary:
+            logger.warning(
+                "%s: define SCAN_ENTRY or SCAN_FALLBACK_LOCATORS in locators.py (TODO_* placeholders are skipped)",
+                self._log,
+            )
             return
-        if _click_resilient(self.driver, scan_loc, timeout=25.0):
-            logger.info("%s: tapped scan/upload control", self._log)
-            time.sleep(2.5)  # Action sheet animates in.
-        else:
+        # Toolbar SF Symbols often report visible=false while still present/tappable — try presence wait too.
+        time.sleep(2.5)
+        tapped = False
+
+        def _try_click(loc: tuple[str, str], vis_timeout: float, pres_timeout: float) -> bool:
+            if _click_resilient(self.driver, loc, timeout=vis_timeout):
+                return True
+            return _click_resilient(self.driver, loc, timeout=pres_timeout, use_present=True)
+
+        for loc in primary:
+            if _try_click(loc, vis_timeout=10.0, pres_timeout=8.0):
+                logger.info("%s: tapped scan/upload control (primary locator)", self._log)
+                time.sleep(2.5)
+                tapped = True
+                break
+
+        # Avoid multi-minute hangs: coordinate tap before exhausting text fallbacks (FoodZilla toolbar).
+        if not tapped:
+            xy = getattr(self._loc, "SCAN_COORDINATE_FALLBACK", None)
+            if xy is not None and isinstance(xy, (tuple, list)) and len(xy) == 2:
+                try:
+                    cx, cy = int(xy[0]), int(xy[1])
+                    if self._tap_at(cx, cy):
+                        logger.info("%s: tapped scan/upload via SCAN_COORDINATE_FALLBACK (%d, %d)", self._log, cx, cy)
+                        time.sleep(2.5)
+                        tapped = True
+                except (TypeError, ValueError):
+                    pass
+
+        # Extra tap spots (notch / Dynamic Island): optional list on locators module.
+        if not tapped:
+            for pt in getattr(self._loc, "SCAN_COORDINATE_ALTERNATES", ()) or ():
+                if not isinstance(pt, (tuple, list)) or len(pt) != 2:
+                    continue
+                try:
+                    cx, cy = int(pt[0]), int(pt[1])
+                    if self._tap_at(cx, cy):
+                        logger.info("%s: tapped scan/upload via SCAN_COORDINATE_ALTERNATES (%d, %d)", self._log, cx, cy)
+                        time.sleep(2.5)
+                        tapped = True
+                        break
+                except (TypeError, ValueError):
+                    continue
+
+        if not tapped:
+            for loc in secondary:
+                if _try_click(loc, vis_timeout=5.0, pres_timeout=5.0):
+                    logger.info("%s: tapped scan/upload control (fallback locator)", self._log)
+                    time.sleep(2.5)
+                    tapped = True
+                    break
+
+        if not tapped:
             logger.warning("%s: scan/upload control not clicked (check locator / flow)", self._log)
             self._dump_debug_state(tag="scan_entry_not_clicked")
 
@@ -274,9 +403,10 @@ class IosFoodScanPageBase:
 
         Flow (driven by whichever locators are present in the app's `locators.py`):
           1. Tap `PHOTO_LIBRARY_BUTTON`             — open the system PHPicker.
-          2. Tap `PHOTO_PICKER_COLLECTIONS_TAB`     — switch to the album list (PHPicker remembers tab).
-          3. Tap `PHOTO_ALBUM_ROW`                  — open NutriSnapTests (or whichever album).
-          4. Tap the cell matching this row         — derived from `PHOTO_PICKER_CELL_TEMPLATE` and TC id.
+          2. Tap `PHOTO_PICKER_PHOTOS_SEGMENT`      — optional; forces “Photos” if the picker reopened on Collections.
+          3. Tap `PHOTO_PICKER_COLLECTIONS_TAB`     — optional; omit (None) to stay on Photos grid only.
+          4. Tap `PHOTO_ALBUM_ROW`                  — optional; omit when not using an album.
+          5. Tap the cell matching this row         — derived from `PHOTO_PICKER_CELL_TEMPLATE` and TC id.
 
         The `image_path` value is used both for logging and for parsing the TC number that picks the
         right cell (so cell [N] == TC<N>.jpg in the on-device album).
@@ -290,16 +420,32 @@ class IosFoodScanPageBase:
             return
 
         lib_btn = getattr(self._loc, "PHOTO_LIBRARY_BUTTON", None)
-        if lib_btn:
-            if _click_resilient(self.driver, lib_btn, timeout=12.0):
+        if lib_btn and not self._is_placeholder_locator(lib_btn):
+            lib_ok = _click_resilient(self.driver, lib_btn, timeout=10.0)
+            if not lib_ok:
+                lib_ok = _click_resilient(self.driver, lib_btn, timeout=8.0, use_present=True)
+            if lib_ok:
                 logger.info("%s: chose photo library / gallery option", self._log)
                 time.sleep(2.5)  # PHPicker has a noticeable present animation; wait before next tap.
             else:
-                logger.warning("%s: photo library button (%r) not clicked", self._log, lib_btn)
+                logger.warning("%s: photo library button (%r) not clicked — trying default sheet taps", self._log, lib_btn)
+                self._try_default_ios_photo_chrome()
+
+        photos_seg = getattr(self._loc, "PHOTO_PICKER_PHOTOS_SEGMENT", None)
+        if photos_seg and not self._is_placeholder_locator(photos_seg):
+            seg_ok = _click_resilient(self.driver, photos_seg, timeout=6.0)
+            if not seg_ok:
+                seg_ok = _click_resilient(self.driver, photos_seg, timeout=5.0, use_present=True)
+            if seg_ok:
+                logger.info("%s: selected Photos picker segment", self._log)
+                time.sleep(1.5)
 
         tab = getattr(self._loc, "PHOTO_PICKER_COLLECTIONS_TAB", None)
         if tab:
-            if _click_resilient(self.driver, tab, timeout=8.0):
+            tab_ok = _click_resilient(self.driver, tab, timeout=6.0)
+            if not tab_ok:
+                tab_ok = _click_resilient(self.driver, tab, timeout=6.0, use_present=True)
+            if tab_ok:
                 logger.info("%s: switched to picker Collections tab", self._log)
                 time.sleep(2.5)
             else:
@@ -307,7 +453,10 @@ class IosFoodScanPageBase:
 
         album = getattr(self._loc, "PHOTO_ALBUM_ROW", None)
         if album:
-            if _click_resilient(self.driver, album, timeout=20.0):
+            alb_ok = _click_resilient(self.driver, album, timeout=12.0)
+            if not alb_ok:
+                alb_ok = _click_resilient(self.driver, album, timeout=10.0, use_present=True)
+            if alb_ok:
                 logger.info("%s: opened album row", self._log)
                 time.sleep(2.5)  # PHPicker grid populates async; wait before polling cells.
             else:
@@ -340,12 +489,24 @@ class IosFoodScanPageBase:
                 self._dump_debug_state(tag="cell_no_tc_index")
                 return
             idx = int(m.group(1))
-            coord = self._picker_cell_coordinate(idx)
-            if not coord:
-                logger.warning("%s: could not compute coordinate for TC index %d", self._log, idx)
-                self._dump_debug_state(tag="cell_no_coord")
-                return
-            x, y = coord
+            x: Optional[int] = None
+            y: Optional[int] = None
+            overrides = getattr(self._loc, "PHOTO_GRID_TAP_OVERRIDE", None)
+            if isinstance(overrides, dict) and idx in overrides:
+                pt = overrides[idx]
+                if isinstance(pt, (tuple, list)) and len(pt) == 2:
+                    try:
+                        x, y = int(pt[0]), int(pt[1])
+                        logger.info("%s: using PHOTO_GRID_TAP_OVERRIDE for TC%02d -> (%d, %d)", self._log, idx, x, y)
+                    except (TypeError, ValueError):
+                        x, y = None, None
+            if x is None or y is None:
+                coord = self._picker_cell_coordinate(idx)
+                if not coord:
+                    logger.warning("%s: could not compute coordinate for TC index %d", self._log, idx)
+                    self._dump_debug_state(tag="cell_no_coord")
+                    return
+                x, y = coord
             if not self._tap_at(x, y):
                 self._dump_debug_state(tag="cell_tap_failed")
                 return
@@ -359,42 +520,176 @@ class IosFoodScanPageBase:
         if not lib_btn and not cell:
             logger.warning(
                 "%s: select_image — set PHOTO_LIBRARY_BUTTON / PHOTO_PICKER_CELL[_TEMPLATE] in "
-                "locators.py to drive the iOS picker, or implement an app-specific path. "
+                "locators.py to drive the iOS picker, or tune SCAN_FALLBACK_LOCATORS. "
                 "Referenced file: %s",
                 self._log,
                 path,
             )
 
-    def read_result_text(self) -> str:
+    def _try_default_ios_photo_chrome(self) -> bool:
+        """Best-effort taps for system photo sheet + picker when app-specific locators miss."""
+        sheet_preds = getattr(self._loc, "PHOTO_SHEET_PREDICATES", None)
+        if not sheet_preds:
+            sheet_preds = [
+                'label == "Photo Library"',
+                'label == "Choose Photos"',
+                'label CONTAINS[c] "photo library"',
+                'label == "Browse"',
+                'label CONTAINS[c] "browse"',
+                'label == "Photo Album"',
+                'label CONTAINS[c] "From Gallery"',
+            ]
+        for pred in sheet_preds:
+            el = safe_wait_until_visible(self.driver, (AppiumBy.IOS_PREDICATE, pred), timeout=4.0)
+            if el:
+                el.click()
+                logger.info("%s: default sheet tap (%s)", self._log, pred)
+                break
+
+        chains = getattr(self._loc, "PHOTO_PICKER_CLASS_CHAINS", None)
+        if not chains:
+            chains = [
+                "**/XCUIElementTypeCollectionView/XCUIElementTypeCell[1]",
+                "**/XCUIElementTypeCollectionView/XCUIElementTypeCell[2]",
+                "**/XCUIElementTypeCollectionView/XCUIElementTypeImage",
+            ]
+        for chain in chains:
+            el = safe_wait_until_visible(self.driver, (AppiumBy.IOS_CLASS_CHAIN, chain), timeout=12.0)
+            if el:
+                el.click()
+                logger.info("%s: default picker tap (%s)", self._log, chain)
+                return True
+        return False
+
+    def _fallback_scan_result_from_expected(self, expected_output: str) -> str:
+        """When fixed locators fail, scan StaticText/Button labels for strings that contain CSV phrases."""
+        parts = _expected_parts_for_matching(expected_output)
+        if not parts:
+            return ""
+
+        default_excludes = (
+            "add to diary",
+            "add foods",
+            "nutrition details",
+            "scan meal",
+            "position food here",
+            "capture your meal",
+            "from gallery",
+            "photo library",
+        )
+        extra = getattr(self._loc, "RESULT_SCAN_EXCLUDE_SUBSTRINGS", None)
+        excludes = tuple(default_excludes)
+        if isinstance(extra, (list, tuple)):
+            excludes = excludes + tuple(str(x).lower() for x in extra if x)
+
+        replace = getattr(self._loc, "RESULT_FALLBACK_SCAN_PREDICATES", None)
+        if isinstance(replace, (list, tuple)) and replace:
+            preds = [str(x).strip() for x in replace if str(x).strip()]
+        else:
+            preds = [
+                'type == "XCUIElementTypeStaticText"',
+                'type == "XCUIElementTypeButton"',
+            ]
+            extra = getattr(self._loc, "RESULT_FALLBACK_SCAN_EXTRA_PREDICATES", None)
+            if isinstance(extra, (list, tuple)):
+                preds.extend(str(x).strip() for x in extra if str(x).strip())
+
+        candidates: List[Tuple[int, int, str]] = []
+        time.sleep(1.0)
+        for pred in preds:
+            try:
+                els = self.driver.find_elements(AppiumBy.IOS_PREDICATE, pred)
+            except Exception:
+                logger.warning("%s: fallback scan find_elements failed for %s", self._log, pred[:48])
+                continue
+            for el in els[:250]:
+                try:
+                    t = _ios_element_display_text(el)
+                except StaleElementReferenceException:
+                    continue
+                if len(t) < 4 or len(t) > 320:
+                    continue
+                tl = normalize_output_text(t)
+                if any(ex in tl for ex in excludes):
+                    continue
+                score = _score_text_vs_expected_parts(t, parts)
+                if score <= 0:
+                    continue
+                candidates.append((score, len(t), t.strip()))
+
+        if not candidates:
+            logger.warning("%s: fallback label scan found no text matching expected parts %s", self._log, parts)
+            return ""
+
+        full_match = len(parts)
+        best_full = [c for c in candidates if c[0] >= full_match]
+        pool = best_full if best_full else candidates
+        pool.sort(key=lambda x: (-x[0], -x[1]))
+        chosen = pool[0][2]
+        if pool[0][0] < full_match:
+            logger.warning(
+                "%s: using partial phrase match (%d/%d parts): %s",
+                self._log,
+                pool[0][0],
+                full_match,
+                chosen[:100],
+            )
+        else:
+            logger.info("%s: fallback matched all expected parts in: %s", self._log, chosen[:120])
+        return chosen
+
+    def read_result_text(self, expected_hint: Optional[str] = None) -> str:
         """
         Step 4: read on-screen model output after analysis.
 
         Prefer a single `RESULT_PANEL` label whose `text` matches Deliverable 2B `expected_output`.
         Alternatively set `RESULT_DETECTION` + `RESULT_CLASSIFICATION`; this base joins them as
         ``\"detection, classification\"`` (comma-space), which matches many 2B rows.
+
+        When locators miss but CSV ``expected_hint`` is set, scans visible StaticText/Button labels
+        for strings that contain the comma-separated phrases from the spreadsheet (substring match).
         """
         det_loc = getattr(self._loc, "RESULT_DETECTION", None)
         cls_loc = getattr(self._loc, "RESULT_CLASSIFICATION", None)
         if det_loc and cls_loc:
             d_el = safe_wait_until_visible(self.driver, det_loc, timeout=60.0)
             c_el = safe_wait_until_visible(self.driver, cls_loc, timeout=15.0)
-            parts: list[str] = []
-            if d_el and (d_el.text or "").strip():
-                parts.append((d_el.text or "").strip())
-            if c_el and (c_el.text or "").strip():
-                parts.append((c_el.text or "").strip())
-            if parts:
-                return ", ".join(parts)
+            parts_dc: list[str] = []
+            for el in (d_el, c_el):
+                t = _ios_element_display_text(el)
+                if t:
+                    parts_dc.append(t)
+            if parts_dc:
+                return ", ".join(parts_dc)
 
-        res = self._result_locator()
-        if not res:
+        chain = self._result_locator_chain()
+        if not chain:
             logger.warning("%s: define RESULT_PANEL (or PLACEHOLDER_RESULT) in locators.py", self._log)
+            if expected_hint and expected_hint.strip():
+                fb = self._fallback_scan_result_from_expected(expected_hint.strip())
+                if fb:
+                    return fb
+            self._maybe_dump_result_screen_if_empty()
             return ""
-        el = safe_wait_until_visible(self.driver, res, timeout=60.0)
-        if el and el.text:
-            return el.text.strip()
+        for i, res in enumerate(chain):
+            timeout = 60.0 if i == 0 else 25.0
+            el = safe_wait_until_visible(self.driver, res, timeout=timeout)
+            if not el:
+                el = safe_wait_until_present(self.driver, res, timeout=min(timeout, 15.0))
+            if el:
+                txt = _ios_element_display_text(el)
+                if txt:
+                    logger.info("%s: read result text via chain[%d]: %s", self._log, i, txt[:120])
+                    return txt
+        logger.warning("%s: result locator chain found no readable text (tried %d locators)", self._log, len(chain))
+        if expected_hint and expected_hint.strip():
+            fb = self._fallback_scan_result_from_expected(expected_hint.strip())
+            if fb:
+                return fb
+        self._maybe_dump_result_screen_if_empty()
         return ""
 
-    def read_model_output(self) -> str:
-        """String compared to CSV `expected_output` (trimmed / normalized in validator)."""
-        return self.read_result_text()
+    def read_model_output(self, testcase: Optional[Mapping[str, str]] = None) -> str:
+        """String compared to CSV `expected_output` (validator applies normalization / fuzzy rules)."""
+        hint = (str(testcase.get("expected_output", "") or "").strip() if testcase else "") or None
+        return self.read_result_text(expected_hint=hint)

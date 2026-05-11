@@ -1,0 +1,33 @@
+# Teammate 1 — FoodZilla runs. Fill udid, platform_version, org_id, bundle_id before running.
+
+device:
+  name: "Kavya's iPhone"
+  udid: "00008140-001C18302EFA801C"
+  # Real device may report iOS 18+ / 26.x. Appium 11.x + appium-ios-remotexpc can crash on USB port
+  # forward before WDA is up ("Cannot read properties of undefined (reading 'once')").
+  # A value strictly below 18.0 forces legacy appium-ios-device forwarding (still works over USB).
+  platform_version: "17.6"
+
+app:
+  bundle_id: "xyz.mbgames.foodz"
+
+appium:
+  server_url: "http://127.0.0.1:4723"
+
+xcode:
+  org_id: "6Z343TLV4K"
+  signing_id: "Apple Development"
+  # Lets Appium/xcodebuild use -allowProvisioningUpdates (fixes missing WDA profiles on device).
+  allow_provisioning_device_registration: true
+  # Verbose Appium logs; set false once WDA installs reliably.
+  show_xcode_log: true
+
+session:
+  wda_local_port: null
+  new_command_timeout: 120
+  # Reuse WDA built/signed in Xcode (Product → Test). Avoids Appium rebuilding under ~/.appium/.../node_modules where CLI signing failed.
+  # After Xcode → Clean Build Folder or deleting DerivedData, run Product → Test again before Appium.
+  use_prebuilt_wda: true
+  derived_data_path: "/Users/kavyayerneni/Library/Developer/Xcode/DerivedData/WebDriverAgent-curgliuxlsntiqapyhlkziugjrye"
+  # Must match WebDriverAgentRunner bundle id in Xcode (Signing & Capabilities).
+  updated_wda_bundle_id: "edu.sjsu.kavya.WebDriverAgentRunner"
