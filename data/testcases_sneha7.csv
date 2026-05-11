@@ -1,0 +1,8 @@
+test_id,app_name,section,subsection,dimension_type,sub_dimension,item_description,image_path,expected_output,actual_output,result
+1,SnapCalorie,Context,Illumination,Illumination,Illumination,In bright light,data/images/TC01.jpg,"Pomegranate, Juice",,
+2,SnapCalorie,Context,Illumination,Illumination,Illumination,Food in bright light,data/images/TC02.jpg,"Pasta,Spaghetti",,
+3,SnapCalorie,Context,Illumination,Illumination,Illumination,Food in dark light,data/images/TC03.jpg,Apple,,
+5,SnapCalorie,Context,Background,Background,Background,Orange juice in same background (orange),data/images/TC05.jpg,Orange Juice,,
+16,SnapCalorie,Input,Packaging,Packaging,Packaging,Wrapped Food,data/images/TC16.jpg,Madeleins,,
+21,SnapCalorie,Input,State,State,State,Powder Form,data/images/TC21.jpg,Chilli Powder,,
+31,SnapCalorie,Input,Item Test,Item Test,Item Test,Item that looks like food,data/images/TC31.jpg,"Sorry, we could not detect the food in the picture",,
